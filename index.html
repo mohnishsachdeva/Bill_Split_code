@@ -10,7 +10,7 @@
     h1{font-size:20px;margin:0 0 12px}
     table{width:100%;border-collapse:collapse}
     th,td{padding:8px;border:1px solid #e6edf3;text-align:left;font-size:14px}
-    input[type=number]{width:100px}
+    input[type=number], input[type=text]{width:100px}
     .actions{display:flex;gap:8px;margin:12px 0}
     button{background:#2563eb;color:white;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
     button.ghost{background:transparent;color:#2563eb;border:1px solid #cfe0ff}
@@ -20,7 +20,7 @@
     .export{margin-top:12px}
     label{display:block}
     .controls{display:flex;gap:8px;align-items:center;margin-bottom:10px}
-    @media (max-width:640px){.controls{flex-direction:column;align-items:stretch}input[type=number]{width:100%}}
+    @media (max-width:640px){.controls{flex-direction:column;align-items:stretch}input[type=number],input[type=text]{width:100%}}
   </style>
 </head>
 <body>
@@ -58,6 +58,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 <script>
 let people = [];
 const tbody = document.querySelector('#paymentsTable tbody');
@@ -68,6 +69,7 @@ const nameInputsDiv = document.getElementById('nameInputs');
 function buildTableHeader() {
   headerRow.innerHTML = '';
   let th = document.createElement('th'); th.textContent = 'Payer'; headerRow.appendChild(th);
+  th = document.createElement('th'); th.textContent = 'Item'; headerRow.appendChild(th);
   th = document.createElement('th'); th.textContent = 'Amount (₹)'; headerRow.appendChild(th);
   people.forEach(p => {
     let th = document.createElement('th');
@@ -77,7 +79,7 @@ function buildTableHeader() {
   th = document.createElement('th'); th.textContent = 'Remove'; headerRow.appendChild(th);
 }
 
-function createRow(payer=people[0], amount=0, forArr=[]) {
+function createRow(payer=people[0], itemName='', amount=0, forArr=[]) {
   const tr = document.createElement('tr');
 
   const payerTd = document.createElement('td');
@@ -90,6 +92,12 @@ function createRow(payer=people[0], amount=0, forArr=[]) {
   payerSel.value = payer;
   payerTd.appendChild(payerSel);
   tr.appendChild(payerTd);
+
+  const itemTd = document.createElement('td');
+  const itemInp = document.createElement('input');
+  itemInp.type='text'; itemInp.value = itemName;
+  itemTd.appendChild(itemInp);
+  tr.appendChild(itemTd);
 
   const amtTd = document.createElement('td');
   const amtInp = document.createElement('input');
@@ -120,12 +128,13 @@ function getRowsData() {
   const rows = [];
   for (const tr of tbody.querySelectorAll('tr')) {
     const payer = tr.children[0].querySelector('select').value;
-    const amount = parseFloat(tr.children[1].querySelector('input').value) || 0;
+    const itemName = tr.children[1].querySelector('input').value;
+    const amount = parseFloat(tr.children[2].querySelector('input').value) || 0;
     const forArr = [];
-    for (let i=2; i<2+people.length; i++) {
+    for (let i=3; i<3+people.length; i++) {
       forArr.push(tr.children[i].querySelector('input').checked ? 1 : 0);
     }
-    rows.push({payer, amount, forArr});
+    rows.push({payer, itemName, amount, forArr});
   }
   return rows;
 }
@@ -158,10 +167,10 @@ function calculate() {
 }
 
 function exportCsv() {
-  const calc = window._lastCalculation || {rows: getRowsData(), totalPaid:{}, enjoyed:{}};
+  const calc = window._lastCalculation || {rows: getRowsData(), totalPaid:{}, enjoyed:{}};  
   const lines = [];
-  lines.push('Payer,Amount,' + people.map(p => 'For'+p).join(','));
-  calc.rows.forEach(r => { lines.push(`${r.payer},${r.amount},${r.forArr.join(',')}`); });
+  lines.push('Payer,Item,Amount,' + people.map(p => 'For'+p).join(','));
+  calc.rows.forEach(r => { lines.push(`${r.payer},${r.itemName},${r.amount},${r.forArr.join(',')}`); });
   lines.push(''); lines.push('Person,TotalPaid,ShareEnjoyed,Difference');
   people.forEach(p => {
     const tp = calc.totalPaid[p] || 0;
@@ -174,10 +183,10 @@ function exportCsv() {
 }
 
 function downloadExcel() {
-  const calc = window._lastCalculation || {rows: getRowsData(), totalPaid:{}, enjoyed:{}};
+  const calc = window._lastCalculation || {rows: getRowsData(), totalPaid:{}, enjoyed:{}};  
   const lines = [];
-  lines.push('Payer\tAmount\t' + people.map(p => 'For'+p).join('\t'));
-  calc.rows.forEach(r => { lines.push(`${r.payer}\t${r.amount}\t${r.forArr.join('\t')}`); });
+  lines.push('Payer\tItem\tAmount\t' + people.map(p => 'For'+p).join('\t'));
+  calc.rows.forEach(r => { lines.push(`${r.payer}\t${r.itemName}\t${r.amount}\t${r.forArr.join('\t')}`); });
   lines.push(''); lines.push('Person\tTotalPaid\tShareEnjoyed\tDifference');
   people.forEach(p => {
     const tp = calc.totalPaid[p] || 0;
@@ -195,20 +204,18 @@ function downloadPdf() {
   doc.setFontSize(14);
   doc.text("Party Settlement Report", 10, 10);
 
-  // Table of payments
   let y = 20;
   doc.setFontSize(10);
   doc.text("Payments:", 10, y);
   y += 5;
 
-  const calc = window._lastCalculation || {rows: getRowsData(), totalPaid:{}, enjoyed:{}};
+  const calc = window._lastCalculation || {rows: getRowsData(), totalPaid:{}, enjoyed:{}};  
   doc.autoTable({
-    head: [['Payer', 'Amount (₹)', ...people.map(p => 'For ' + p)]],
-    body: calc.rows.map(r => [r.payer, r.amount, ...r.forArr]),
+    head: [['Payer', 'Item', 'Amount (₹)', ...people.map(p => 'For ' + p)]],
+    body: calc.rows.map(r => [r.payer, r.itemName, r.amount, ...r.forArr]),
     startY: y
   });
 
-  // Table of summary
   y = doc.lastAutoTable.finalY + 10;
   doc.text("Summary:", 10, y);
   y += 5;
@@ -255,6 +262,5 @@ people = ['A','B','C','D'];
 buildTableHeader();
 createRow();
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </body>
 </html>
