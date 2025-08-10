@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Party Settlement Calculator</title>
+  <style>
+    body{font-family:Inter, system-ui, Arial; background:#f7fafc; color:#0f172a; padding:20px}
+    .container{max-width:900px;margin:0 auto;background:white;padding:18px;border-radius:10px;box-shadow:0 6px 20px rgba(2,6,23,0.08)}
+    h1{font-size:20px;margin:0 0 12px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px;border:1px solid #e6edf3;text-align:left;font-size:14px}
+    input[type=number]{width:100px}
+    .actions{display:flex;gap:8px;margin:12px 0}
+    button{background:#2563eb;color:white;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
+    button.ghost{background:transparent;color:#2563eb;border:1px solid #cfe0ff}
+    .summary{margin-top:18px}
+    .person-row{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;background:#f1f5f9;margin:6px 0}
+    .small{font-size:13px;color:#475569}
+    .export{margin-top:12px}
+    label{display:block}
+    .controls{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+    @media (max-width:640px){.controls{flex-direction:column;align-items:stretch}input[type=number]{width:100%}}
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Party Settlement Calculator</h1>
+  <p class="small">Choose the number of people, give them names, then add payments and calculate settlement.</p>
+
+  <div class="controls">
+    <label>Number of people: <input type="number" id="numPeople" min="1" max="10" value="4"></label>
+    <button id="setPeopleBtn">Set People</button>
+  </div>
+
+  <div id="nameInputs" class="controls"></div>
+
+  <table id="paymentsTable">
+    <thead>
+      <tr id="tableHeader"></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="actions">
+    <button id="addRowBtn">+ Add Payment Row</button>
+    <div style="flex:1"></div>
+    <button id="calculateBtn">Calculate</button>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="export">
+    <button id="exportCsv">Export CSV</button>
+    <button id="downloadExcel">Download Excel (CSV renamed .xls)</button>
+    <button id="downloadPdf">Download PDF</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+let people = [];
+const tbody = document.querySelector('#paymentsTable tbody');
+const summaryDiv = document.getElementById('summary');
+const headerRow = document.getElementById('tableHeader');
+const nameInputsDiv = document.getElementById('nameInputs');
+
+function buildTableHeader() {
+  headerRow.innerHTML = '';
+  let th = document.createElement('th'); th.textContent = 'Payer'; headerRow.appendChild(th);
+  th = document.createElement('th'); th.textContent = 'Amount (₹)'; headerRow.appendChild(th);
+  people.forEach(p => {
+    let th = document.createElement('th');
+    th.textContent = `For ${p}`;
+    headerRow.appendChild(th);
+  });
+  th = document.createElement('th'); th.textContent = 'Remove'; headerRow.appendChild(th);
+}
+
+function createRow(payer=people[0], amount=0, forArr=[]) {
+  const tr = document.createElement('tr');
+
+  const payerTd = document.createElement('td');
+  const payerSel = document.createElement('select');
+  people.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p; o.textContent = p;
+    payerSel.appendChild(o);
+  });
+  payerSel.value = payer;
+  payerTd.appendChild(payerSel);
+  tr.appendChild(payerTd);
+
+  const amtTd = document.createElement('td');
+  const amtInp = document.createElement('input');
+  amtInp.type='number'; amtInp.min='0'; amtInp.value = amount;
+  amtTd.appendChild(amtInp);
+  tr.appendChild(amtTd);
+
+  for (let i=0; i<people.length; i++) {
+    const td = document.createElement('td');
+    const chk = document.createElement('input');
+    chk.type='checkbox'; chk.checked = !!forArr[i];
+    td.appendChild(chk);
+    tr.appendChild(td);
+  }
+
+  const remTd = document.createElement('td');
+  const remBtn = document.createElement('button');
+  remBtn.textContent = 'Remove';
+  remBtn.className = 'ghost';
+  remBtn.onclick = () => { tr.remove(); };
+  remTd.appendChild(remBtn);
+  tr.appendChild(remTd);
+
+  tbody.appendChild(tr);
+}
+
+function getRowsData() {
+  const rows = [];
+  for (const tr of tbody.querySelectorAll('tr')) {
+    const payer = tr.children[0].querySelector('select').value;
+    const amount = parseFloat(tr.children[1].querySelector('input').value) || 0;
+    const forArr = [];
+    for (let i=2; i<2+people.length; i++) {
+      forArr.push(tr.children[i].querySelector('input').checked ? 1 : 0);
+    }
+    rows.push({payer, amount, forArr});
+  }
+  return rows;
+}
+
+function calculate() {
+  const rows = getRowsData();
+  const totalPaid = {}; const enjoyed = {};
+  people.forEach(p => { totalPaid[p] = 0; enjoyed[p] = 0; });
+
+  rows.forEach(r => {
+    const n = r.forArr.reduce((a,b)=>a+b, 0);
+    const per = n>0 ? r.amount / n : 0;
+    totalPaid[r.payer] += r.amount;
+    r.forArr.forEach((v,i)=>{ if(v) enjoyed[people[i]] += per; });
+  });
+
+  summaryDiv.innerHTML = '<div style="font-weight:600;margin-bottom:6px">Summary</div>';
+  people.forEach(p => {
+    const d = document.createElement('div'); d.className='person-row';
+    const left = document.createElement('div');
+    left.innerHTML = `<strong>${p}</strong><div class='small'>Paid: ₹${totalPaid[p].toFixed(2)}</div>`;
+    const diff = totalPaid[p] - enjoyed[p];
+    const right = document.createElement('div');
+    right.innerHTML = `Share: ₹${enjoyed[p].toFixed(2)}<div style='font-weight:600;margin-top:4px'>${diff>0?('Receive ₹'+diff.toFixed(2)):('Pay ₹'+Math.abs(diff).toFixed(2))}</div>`;
+    d.appendChild(left); d.appendChild(right);
+    summaryDiv.appendChild(d);
+  });
+
+  window._lastCalculation = {rows, totalPaid, enjoyed};
+}
+
+function exportCsv() {
+  const calc = window._lastCalculation || {rows: getRowsData(), totalPaid:{}, enjoyed:{}};
+  const lines = [];
+  lines.push('Payer,Amount,' + people.map(p => 'For'+p).join(','));
+  calc.rows.forEach(r => { lines.push(`${r.payer},${r.amount},${r.forArr.join(',')}`); });
+  lines.push(''); lines.push('Person,TotalPaid,ShareEnjoyed,Difference');
+  people.forEach(p => {
+    const tp = calc.totalPaid[p] || 0;
+    const sh = calc.enjoyed[p] || 0;
+    lines.push(`${p},${tp.toFixed(2)},${sh.toFixed(2)},${(tp-sh).toFixed(2)}`);
+  });
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'party_settlement.csv'; document.body.appendChild(a); a.click(); a.remove();
+}
+
+function downloadExcel() {
+  const calc = window._lastCalculation || {rows: getRowsData(), totalPaid:{}, enjoyed:{}};
+  const lines = [];
+  lines.push('Payer\tAmount\t' + people.map(p => 'For'+p).join('\t'));
+  calc.rows.forEach(r => { lines.push(`${r.payer}\t${r.amount}\t${r.forArr.join('\t')}`); });
+  lines.push(''); lines.push('Person\tTotalPaid\tShareEnjoyed\tDifference');
+  people.forEach(p => {
+    const tp = calc.totalPaid[p] || 0;
+    const sh = calc.enjoyed[p] || 0;
+    lines.push(`${p}\t${tp.toFixed(2)}\t${sh.toFixed(2)}\t${(tp-sh).toFixed(2)}`);
+  });
+  const blob = new Blob([lines.join('\n')], {type:'application/vnd.ms-excel'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'party_settlement.xls'; document.body.appendChild(a); a.click(); a.remove();
+}
+
+function downloadPdf() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.text("Party Settlement Report", 10, 10);
+
+  // Table of payments
+  let y = 20;
+  doc.setFontSize(10);
+  doc.text("Payments:", 10, y);
+  y += 5;
+
+  const calc = window._lastCalculation || {rows: getRowsData(), totalPaid:{}, enjoyed:{}};
+  doc.autoTable({
+    head: [['Payer', 'Amount (₹)', ...people.map(p => 'For ' + p)]],
+    body: calc.rows.map(r => [r.payer, r.amount, ...r.forArr]),
+    startY: y
+  });
+
+  // Table of summary
+  y = doc.lastAutoTable.finalY + 10;
+  doc.text("Summary:", 10, y);
+  y += 5;
+  doc.autoTable({
+    head: [['Person', 'Total Paid (₹)', 'Share Enjoyed (₹)', 'Difference (₹)']],
+    body: people.map(p => {
+      const tp = calc.totalPaid[p] || 0;
+      const sh = calc.enjoyed[p] || 0;
+      return [p, tp.toFixed(2), sh.toFixed(2), (tp-sh).toFixed(2)];
+    }),
+    startY: y
+  });
+
+  doc.save("party_settlement.pdf");
+}
+
+document.getElementById('setPeopleBtn').addEventListener('click', () => {
+  const num = parseInt(document.getElementById('numPeople').value) || 1;
+  nameInputsDiv.innerHTML = '';
+  for (let i=0; i<num; i++) {
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.placeholder = 'Name ' + (i+1);
+    inp.value = 'P' + (i+1);
+    nameInputsDiv.appendChild(inp);
+  }
+  const nameBtn = document.createElement('button');
+  nameBtn.textContent = 'Confirm Names';
+  nameBtn.onclick = () => {
+    people = Array.from(nameInputsDiv.querySelectorAll('input')).map(inp => inp.value.trim() || 'P');
+    buildTableHeader();
+    tbody.innerHTML = '';
+    createRow();
+  };
+  nameInputsDiv.appendChild(nameBtn);
+});
+
+document.getElementById('addRowBtn').addEventListener('click', () => createRow());
+document.getElementById('calculateBtn').addEventListener('click', calculate);
+document.getElementById('exportCsv').addEventListener('click', exportCsv);
+document.getElementById('downloadExcel').addEventListener('click', downloadExcel);
+document.getElementById('downloadPdf').addEventListener('click', downloadPdf);
+
+people = ['A','B','C','D'];
+buildTableHeader();
+createRow();
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+</body>
+</html>
